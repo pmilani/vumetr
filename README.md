@@ -1,23 +1,25 @@
-# Info
+Info
+====
 
 **VUmetr**
 
 Copyright 2013 Paolo Milani. All rights reserved.
 
-## Features
+## Features ##
  - day/night mode
  - power on/off
 
-## Technology:
+## Technology ##
  - HTML5 canvas
  - jQuery integration
  - efficient animation scheduling
 
-## FIX NEEDED:
+## FIX NEEDED ##
  - needle movement
  - values and marks of the scale
 
-# Usage
+Usage
+=====
 
 - Create the VU: `$('.myclass').vumetr()`
 - Light mode: `$('.myclass').vumetr('lightMode', 'day')` : 'day' or 'night'
