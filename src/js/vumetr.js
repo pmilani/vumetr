@@ -2,18 +2,19 @@
  * VUmetr - copyright 2013 Paolo Milani 
  * All rights reserved.
  * 
- * Features
- * - day/night mode
- * - power on/off
- *
- * Technology:
- * - HTML5 canvas
- * - jQuery integration
- * - efficient animation scheduling
- * 
  * TODO
  * - calculate only once marks and numbers
- * - optimize render background offscreen and copy img
+ * - optimize render background offscreen and copy img, store in prototype?
+ * 
+ * CHANGELOG
+ * - optimized: pre-render and cache all parts below the needle
+ * - fixed: needle response in correct rise time
+ * - needle animation
+ * - glass effect
+ * - indicator shadow
+ * - lighting effects
+ * - color styling
+ * - basic: scale, marks, needle
  */
 function VU() {
 
@@ -29,16 +30,19 @@ function VU() {
 	
 	var redline = percentOf(aRedStart);
 	var riseTime = 300; // == fallTime
+	var needleSpeed = 1000 * 0.7 / riseTime;  // 0.7 = 0dB; it must take 300ms to reach 0db from 0
 	
-	var inputValue = 0; 	// 0 .. 1
+	var inputValue = -.1; 	// 0 .. 1
 	var indicatorValue = -.1; // 0 .. 1
-	var animSpeed = 0;
-	var animStartTime = 0;
 	var animLastTime = 0;
 	
 	var powered = false;
+	var metering = 'vu';
 	
 	var labelText = "VUmetr digital audio";
+	
+	var backgroundImage;
+
 
 	var ColorDefs = [
 		// 0: light off
@@ -178,18 +182,30 @@ function percentOf(angle) {
 	return ( (angle%Math.PI)-(aStart%Math.PI) ) / ( (aEnd%Math.PI)-(aStart%Math.PI) );
 }
 
-function draw() {
-	var ctx = element.getContext('2d');
-	ctx.clearRect(0, 0, W, H);
-
+function renderBackground(ctx) {
 	drawBackground(ctx);
 	drawScaleBaseline(ctx);
 	drawScaleMarks(ctx);
 	drawScaleNumbers(ctx);
+	return element.toDataURL();
+}
+
+function requestUpdateBackground() {
+	backgroundImage = null;
+}
+
+function draw() {
+	var ctx = element.getContext('2d');
+	ctx.clearRect(0, 0, W, H);
+
+	if (!backgroundImage) {
+		backgroundImage = new Image();
+		backgroundImage.src = renderBackground(ctx);
+	} else ctx.drawImage(backgroundImage,0,0);	// 'else' saves rendering 1 extra time
 	drawIndicator(ctx, indicatorValue);
+	drawGlass(ctx);
 	drawBottom(ctx);
 	drawLightMultiplier(ctx);
-	drawGlass(ctx);
 }
 
 function drawBackground(ctx) {
@@ -293,12 +309,13 @@ function drawScaleNumbers(ctx) {
 
 function drawIndicator(ctx, percent) {
 	var len = 210;
-	var x = ox + len*Math.cos(angleOf(percent));
-	var y = oy + len*Math.sin(angleOf(percent));
 	
 	ctx.beginPath();
-	ctx.moveTo(ox,oy);
-	ctx.lineTo(x,y);
+	ctx.save();
+	ctx.translate(ox,oy);
+	ctx.rotate(angleOf(percent));
+	ctx.moveTo(0,0);
+	ctx.lineTo(len,0);
 	ctx.strokeStyle = colorScheme.indicatorColor;
 	ctx.lineWidth = 6;
 	ctx.shadowColor = colorScheme.indicatorShadowColor;
@@ -306,7 +323,7 @@ function drawIndicator(ctx, percent) {
 	ctx.shadowOffsetX = 0;
 	ctx.shadowOffsetY = 15;
 	ctx.stroke();
-	ctx.shadowColor = "transparent";
+	ctx.restore();
 }
 
 function drawBottom(ctx) {
@@ -321,23 +338,33 @@ function drawBottom(ctx) {
 }
 
 function animateIndicator(time) {
-	var deltaTime = (time - animLastTime) / 1000;
-	if (indicatorValue != inputValue) {
-		requestAnimationFrame(animateIndicator);
-		if (inputValue-indicatorValue > animSpeed) {
-			animSpeed = inputValue-indicatorValue;
+	var deltaTimeMillis = (time - animLastTime);
+	var distance = inputValue-indicatorValue;
+	var delta;
+	requestAnimationFrame(animateIndicator);
+	
+	if (metering === 'vu') {
+		if (Math.abs(distance) > 0.0001) {
+			if (distance>0) delta = needleSpeed * deltaTimeMillis / 1000;
+			else delta = -needleSpeed * deltaTimeMillis / 1000;
+			if (Math.abs(delta) > Math.abs(distance)) {
+				delta = distance*1.010*deltaTimeMillis/1000; // 1.5% overshoot
+			}
+			//console.log(distance + "::"+delta);
+			indicatorValue += delta;
+			draw();
 		}
-		indicatorValue += animSpeed * deltaTime;
-		//indicatorValue += (inputValue-indicatorValue) * deltaTime;
-		animLastTime = time;
-		draw();
+	} else if (metering === 'ppm') {
+		if (indicatorValue != inputValue) {
+			indicatorValue = inputValue;
+			draw();
+		}
 	}
+	animLastTime = time;
 }
 
-function startAnim(callback, durationMillis) {
-	animStartTime = new Date().getTime();
-	animLastTime = animStartTime;
-	animSpeed = (inputValue-indicatorValue) / durationMillis;
+function startAnim(callback) {
+	animLastTime = new Date().getTime();
 	requestAnimationFrame(callback);
 }
 
@@ -357,6 +384,12 @@ function drawGlass(ctx) {
 	ctx.arc(W/2,-W*1.05,W*1.2,aStart,aEnd,true);
 	ctx.fillStyle = colorScheme.glassReflex;
 	ctx.fill();
+}
+
+function changeColorScheme(selectedIndex) {
+	colorScheme = ColorDefs[selectedIndex];
+	requestUpdateBackground();
+	requestAnimationFrame(draw);
 }
 
 ///// privileged members //////////////
@@ -382,38 +415,45 @@ this.lightMode = function(mode) { // day||night
 		if (powered) selectedLight=2;
 		else selectedLight=0;
 	}
-	colorScheme = ColorDefs[selectedLight];
-	requestAnimationFrame(draw);
+	changeColorScheme(selectedLight);
 };
 
 this.power = function(onOrOff) {
+	if (onOrOff===undefined) return powered;
 	if ((onOrOff=="on" || onOrOff==1) && !powered) {
 		powered = true;
 		if (selectedLight==0) selectedLight=2;
-		colorScheme = ColorDefs[selectedLight];
-		requestAnimationFrame(draw);
+		changeColorScheme(selectedLight);
 		this.input(0);
 	}
 	if ((onOrOff=="off" || onOrOff==0) && powered) {
 		if (selectedLight==2) selectedLight=0;
-		colorScheme = ColorDefs[selectedLight];
-		requestAnimationFrame(draw);
+		changeColorScheme(selectedLight);
 		this.input(-.1);
 		powered = false;
 	}
 };
 
 this.input = function(percent) {
-	inputValue = percent;
-	startAnim(animateIndicator, riseTime);
+	if (powered) {
+		inputValue = percent;
+	}
 };
 
 this.label = function(text) {
 	labelText = text;
+	requestUpdateBackground();
 	requestAnimationFrame(draw);
 };
 
+this.metering = function(vuORppm) {
+	if (vuORppm===undefined) return metering;
+	if (vuORppm.toLowerCase()=='vu') metering='vu';
+	if (vuORppm.toLowerCase()=='ppm') metering='ppm';
+}
+
 create();
+startAnim(animateIndicator);
 };
 
 ////////////////////////////////////
