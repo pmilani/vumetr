@@ -4,10 +4,9 @@
  * 
  * TODO
  * - calculate only once marks and numbers
- * - optimize render background offscreen and copy img, store in prototype?
  * 
- * CHANGELOG
- * - optimized: pre-render and cache all parts below the needle
+ * HISTORY
+ * - optimized: pre-render and cache all parts beyond the needle
  * - fixed: needle response in correct rise time
  * - needle animation
  * - glass effect
