@@ -2,10 +2,8 @@
  * VUmetr - copyright 2013 Paolo Milani 
  * All rights reserved.
  * 
- * TODO
- * - calculate only once marks and numbers
- * 
  * HISTORY
+ * - refactored animation code to perform anims in sequence
  * - optimized: pre-render and cache all parts beyond the needle
  * - fixed: needle response in correct rise time
  * - needle animation
@@ -29,19 +27,24 @@ function VU() {
 	
 	var redline = percentOf(aRedStart);
 	var riseTime = 300; // == fallTime
-	var needleSpeed = 1000 * 0.7 / riseTime;  // 0.7 = 0dB; it must take 300ms to reach 0db from 0
+	var needleSpeed = 0.7 / riseTime * 1000;  // 0.7 = 0dB; it must take 300ms to reach 0db from 0
 	
-	var inputValue = -.1; 	// 0 .. 1
 	var indicatorValue = -.1; // 0 .. 1
 	var animLastTime = 0;
-	
+
+	//var needleRingingAnim;
+	var currentAnim;
+
 	var powered = false;
-	var metering = 'vu';
+	var showfps = false;
 	
 	var labelText = "VUmetr digital audio";
 	
 	var backgroundImage;
 
+	var fps = '';
+	var frames = 0;
+	var frameTime = 0;
 
 	var ColorDefs = [
 		// 0: light off
@@ -205,6 +208,12 @@ function draw() {
 	drawGlass(ctx);
 	drawBottom(ctx);
 	drawLightMultiplier(ctx);
+
+	if (showfps) {
+		ctx.font = '8pt Arial';
+		ctx.fillStyle = 'black';
+		ctx.fillText(fps,20,20);
+	}
 }
 
 function drawBackground(ctx) {
@@ -218,9 +227,9 @@ function drawBackground(ctx) {
 	ctx.font = '12pt CaviarDreamsBold';
 	ctx.fillStyle = 'rgba(0,0,0,1)';
 	ctx.fillText(labelText, W/8,H/4*3);
-	ctx.font = '10pt CaviarDreamsRegular';
+	ctx.font = '10pt Lucida';
 	ctx.fillStyle = 'black';
-	ctx.fillText('0 = +4 dBu', W/4*3,H/4*3);
+	ctx.fillText('0 VU = +4 dBu', W/4*3,H/4*3);
 	
 	ctx.font = '24pt Helvetica';
 	ctx.save();
@@ -336,33 +345,81 @@ function drawBottom(ctx) {
 	ctx.fill();
 }
 
-function animateIndicator(time) {
-	var deltaTimeMillis = (time - animLastTime);
-	var distance = inputValue-indicatorValue;
-	var delta;
-	requestAnimationFrame(animateIndicator);
-	
-	if (metering === 'vu') {
-		if (Math.abs(distance) > 0.0001) {
-			if (distance>0) delta = needleSpeed * deltaTimeMillis / 1000;
-			else delta = -needleSpeed * deltaTimeMillis / 1000;
-			if (Math.abs(delta) > Math.abs(distance)) {
-				delta = distance*1.010*deltaTimeMillis/1000; // 1.5% overshoot
-			}
-			//console.log(distance + "::"+delta);
-			indicatorValue += delta;
-			draw();
-		}
-	} else if (metering === 'ppm') {
-		if (indicatorValue != inputValue) {
-			indicatorValue = inputValue;
-			draw();
-		}
-	}
-	animLastTime = time;
+// Animates needle by simulating a ringing oscillation around the 
+// current value of 'input'
+// Damps oscillation using the reciprocal function of the log 
+function RingingAnim(targetValue,direction,oscRate,scale,duration,fnComplete) {
+	this.phaseFreq = 2*Math.PI*oscRate/1000;
+	this.phase = (direction==1) ? 0 : Math.PI;
+	this.scale = scale;
+	this.timePos = .0;
+	this.timeRate = (Math.E-1)*1000/duration;
+	this.timeLeft = duration;
+	this.onComplete = fnComplete;
+	this.currentValue = targetValue;
+	this.targetValue = targetValue;
+}
+RingingAnim.prototype.update = function(deltaTimeMillis) {
+	var dampFactor = 1/Math.log(1+this.timePos); // inf. when timePos=0
+	if (dampFactor>1) dampFactor = 1; // fix inf.
+	this.currentValue = this.targetValue + Math.sin(this.phase)*this.scale*dampFactor;
+	this.timePos += this.timeRate*deltaTimeMillis;
+	this.phase += this.phaseFreq*deltaTimeMillis;
+	this.timeLeft -= deltaTimeMillis;
+	if (this.timeLeft<0 && this.onComplete) this.onComplete();
 }
 
-function startAnim(callback) {
+// Move the needle at fixed speed towards target value
+// The duration of anim depends on the 'distance' to target
+// When complete, start ringing anim
+function MoveAnim(targetValue, motionRate) {
+	this.targetValue = targetValue;
+	var delta = targetValue - indicatorValue;
+	this.currentValue = indicatorValue;
+	this.timeLeft = 1000*Math.abs(delta)/motionRate;
+	this.velocity = sign(delta) * motionRate;
+}
+MoveAnim.prototype.update = function(deltaTimeMillis) {
+	var delta = this.velocity * deltaTimeMillis / 1000;
+	this.currentValue += delta;
+	this.timeLeft -= deltaTimeMillis;
+	if (this.timeLeft<0) {
+		indicatorValue = this.targetValue;
+		currentAnim = new RingingAnim(this.targetValue, sign(this.velocity), 1.1, 0.015, 1400, function(){
+			indicatorValue = currentAnim.targetValue;
+			currentAnim = null;
+		});
+	}
+}
+
+function sign(x) {
+	return x ? x < 0 ? -1 : 1 : 0; 
+}
+
+function animateIndicator(time) {
+	var deltaTimeMillis = (time - animLastTime);
+
+	// reduce CPU consumption by drawing only when animations run
+	if (currentAnim) {
+		indicatorValue = currentAnim.currentValue;
+		currentAnim.update(deltaTimeMillis);
+		draw(); 
+	}
+	requestAnimationFrame(animateIndicator);
+	animLastTime = time;
+	
+	if (showfps) {
+		frameTime += deltaTimeMillis;
+		frames += 1;
+		if (frameTime > 1000) {
+			fps = (frames * 1000 / frameTime).toFixed(1);
+			frameTime = 0;
+			frames = 0;
+		}
+	}
+}
+
+function startAnimating(callback) {
 	animLastTime = new Date().getTime();
 	requestAnimationFrame(callback);
 }
@@ -423,19 +480,19 @@ this.power = function(onOrOff) {
 		powered = true;
 		if (selectedLight==0) selectedLight=2;
 		changeColorScheme(selectedLight);
-		this.input(0);
+		currentAnim = new MoveAnim(0, needleSpeed/3);
 	}
 	if ((onOrOff=="off" || onOrOff==0) && powered) {
 		if (selectedLight==2) selectedLight=0;
 		changeColorScheme(selectedLight);
-		this.input(-.1);
+		currentAnim = new MoveAnim(-.1, needleSpeed/3);
 		powered = false;
 	}
 };
 
 this.input = function(percent) {
 	if (powered) {
-		inputValue = percent;
+		currentAnim = new MoveAnim(percent, needleSpeed);
 	}
 };
 
@@ -445,14 +502,14 @@ this.label = function(text) {
 	requestAnimationFrame(draw);
 };
 
-this.metering = function(vuORppm) {
-	if (vuORppm===undefined) return metering;
-	if (vuORppm.toLowerCase()=='vu') metering='vu';
-	if (vuORppm.toLowerCase()=='ppm') metering='ppm';
-}
+this.fps = function(onOrOff) {
+	if (onOrOff===undefined) return showfps;
+	if ((onOrOff=="on" || onOrOff==1) && !showfps) showfps = true;
+	if ((onOrOff=="off" || onOrOff==0) && showfps) showfps = false;
+};
 
 create();
-startAnim(animateIndicator);
+startAnimating(animateIndicator);
 };
 
 ////////////////////////////////////
