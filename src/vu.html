@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="css/bootstrap.min.css" media="screen">
+    <link rel="stylesheet" href="css/font.css" media="screen">
+    <style type="text/css"> 
+    #power {
+    position: absolute;
+    top: -35px;
+    left: 10px;
+    }
+    #daymode {
+    position: absolute;
+    top: -35px;
+    left: 300px;
+    }
+    #controls {
+    position: absolute;
+    }
+    </style>
+</head>
+<body>
+  <div class="container">
+  
+    <!-- <canvas width="400" height="300"></canvas>  --> 
+    <div class="vumetr"></div>
+
+	<div id="controls">
+		<a class="btn btn-danger btn-mini" id="power">Off</a>
+		<div class="btn-group" id="daymode" data-toggle="buttons-radio">
+		  <button type="button" class="btn btn-mini btn-inverse active" id="day">Day</button>
+		  <button type="button" class="btn btn-mini btn-inverse" id="night">Night</button>
+		</div>
+	</div>
+	
+	<a class="btn" id="start" data-toggle="button">Feed Input</a>
+	<div class="btn-group" id="inputMode" data-toggle="buttons-radio">
+	  <button type="button" class="btn btn-small active" id="inputRandom">Random</button>
+	  <button type="button" class="btn btn-small" id="inputSweep">Sweep</button>
+	</div>
+	
+	<h5>Instructions</h5>
+	Switch it on and press 'Feed Input'.
+	
+  </div>
+
+  <!-- horrible trick to force FF to load the font -->
+  <p style="font-family: CaviarDreamsBold">&nbsp;</p>
+  <p style="font-family: CaviarDreamsRegular">&nbsp;</p>
+  
+  <script src="js/jquery-1.8.3.min.js"></script>
+  <script src="js/bootstrap.min.js"></script>
+  <script src="js/vumetr.js"></script>
+  <script>
+	$(document).ready(function() {
+
+		var signalValue = 0;
+		var run = false;
+		
+		$('.vumetr').vumetr();
+		$('.vumetr').vumetr('lightMode','day');
+		
+		$('#power').click(function(){
+			var powered = $('.vumetr').vumetr('power');
+			$('.vumetr').vumetr('power', !powered);
+			if (powered)
+				$(this).text('Off').addClass('btn-danger').removeClass('btn-success');
+			else 
+				$(this).text('On').addClass('btn-success').removeClass('btn-danger');
+		});
+		
+		$('#day').click(function(){
+			$('.vumetr').vumetr('lightMode','day');
+		});
+		$('#night').click(function(){
+			$('.vumetr').vumetr('lightMode','night');
+		});
+		
+		$('#start').click(function(){
+			if (run) {
+				run=false;
+				signalValue=0;
+			} else {
+				run=true;
+				signalValue=0;
+				if ($('#inputRandom').hasClass('active'))
+				  setTimeout(inputRandom, 15);
+				else if ($('#inputSweep').hasClass('active'))
+				  setTimeout(inputSweep, 15);
+			}
+		});
+		
+		function inputSweep(){
+			$('.vumetr').vumetr('input', Math.sin(signalValue));
+			signalValue += .01;
+			if (signalValue>Math.PI) signalValue-=Math.PI;
+			if (run) setTimeout(inputSweep, 15);
+			else $('.vumetr').vumetr('input',0);
+		}
+		
+		function inputRandom() {
+			signalValue = .275+.7*Math.random();
+			if (signalValue>1) signalValue=1;
+			else if (signalValue<0) signalValue=0;
+			$('.vumetr').vumetr('input', signalValue);
+			if (run) setTimeout(inputRandom, 50);
+			else $('.vumetr').vumetr('input',0);
+		}		
+	});
+  </script>
+</body>
+</html>
