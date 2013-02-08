@@ -15,7 +15,6 @@ Copyright 2013 Paolo Milani. All rights reserved.
  - efficient animation scheduling
 
 ## FIX NEEDED ##
- - needle movement
  - values and marks of the scale
 
 Usage
