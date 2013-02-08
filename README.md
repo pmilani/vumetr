@@ -6,7 +6,7 @@ Info
 Copyright 2013 Paolo Milani. All rights reserved.
 
 Graphical reproduction of a VU meter.
-A VU meter is a real life electronic device used with analog audio signals.
+A VU meter is a real life electronic device used to monitor analog audio signals.
 The response of the needle is intentionally slow. The purpose is to show a indication of loudness 
 as the human hearing perceives it.
 
