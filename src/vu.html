@@ -3,29 +3,51 @@
 <head>
     <link rel="stylesheet" href="css/bootstrap.min.css" media="screen">
     <link rel="stylesheet" href="css/font.css" media="screen">
-    <style type="text/css"> 
-    #power {
-    position: absolute;
-    top: -35px;
-    left: 10px;
-    }
-    #daymode {
-    position: absolute;
-    top: -35px;
-    left: 300px;
-    }
-    #controls {
-    position: absolute;
-    }
-    </style>
+    <style type="text/css">
+#power {
+	position: relative;
+	top: 55px;
+	left: 10px;
+}
+
+#daymode {
+	position: relative;
+	top: 55px;
+	left: 270px;
+}
+
+#controls {
+	position: absolute;
+}
+</style>
 </head>
 <body>
+  <div class="navbar">
+    <div class="navbar-inner">
+      <a class="brand" href="#">VUmetr</a>
+    </div>
+  </div>
+
   <div class="container">
   
-    <!-- <canvas width="400" height="300"></canvas>  --> 
-    <div class="vumetr"></div>
+    <div class="vumetr" style="float:left; margin-right:3em"></div>
 
-	<div id="controls">
+	<div>
+		<h3>Instructions</h3>
+		Switch it on.
+		Feed simulated input or play audio and view <strong>realtime metering</strong>!
+		
+		<dl>
+			<dt>Simulation</dt>
+			<dd>Press 'Feed Input'. You can choose between 2 types</dd>
+		
+			<dt>Realtime</dt>
+			<dd>Press play on the audio clip.<br>
+			Uses HTML5 Audio API to analyse audio being played in realtime</dd>
+		</dl>
+	</div>
+
+	<div id="controls"  style="clear:both">
 		<a class="btn btn-danger btn-mini" id="power">Off</a>
 		<div class="btn-group" id="daymode" data-toggle="buttons-radio">
 		  <button type="button" class="btn btn-mini btn-inverse active" id="day">Day</button>
@@ -33,14 +55,19 @@
 		</div>
 	</div>
 	
-	<a class="btn" id="start" data-toggle="button">Feed Input</a>
+	<a class="btn btn-primary" id="start" data-toggle="button">Feed Input</a>
 	<div class="btn-group" id="inputMode" data-toggle="buttons-radio">
 	  <button type="button" class="btn btn-small active" id="inputRandom">Random</button>
 	  <button type="button" class="btn btn-small" id="inputSweep">Sweep</button>
 	</div>
 	
-	<h5>Instructions</h5>
-	Switch it on and press 'Feed Input'.
+	<br>
+	<br>
+	
+	<audio controls="controls">
+<!-- 		<source src="http://www.largesound.com/ashborytour/sound/AshboryBYU.mp3"></source> -->
+		<source src="file:/Users/pmilani/Downloads/Maroon 5 - Wont Got Home Without You.mp3"></source>
+	</audio>
 	
   </div>
 
@@ -51,6 +78,7 @@
   <script src="js/jquery-1.8.3.min.js"></script>
   <script src="js/bootstrap.min.js"></script>
   <script src="js/vumetr.js"></script>
+  <script src="js/audio.js"></script>
   <script>
 	$(document).ready(function() {
 
@@ -105,7 +133,10 @@
 			$('.vumetr').vumetr('input', signalValue);
 			if (run) setTimeout(inputRandom, 50);
 			else $('.vumetr').vumetr('input',0);
-		}		
+		}
+		
+		audio.init();
+		$('.vumetr').vumetr('connect', audio.getAnalyser());
 	});
   </script>
 </body>

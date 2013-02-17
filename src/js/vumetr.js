@@ -3,6 +3,7 @@
  * All rights reserved.
  * 
  * HISTORY
+ * - realtime audio analysis
  * - refactored animation code to perform anims in sequence
  * - optimized: pre-render and cache all parts beyond the needle
  * - fixed: needle response in correct rise time
@@ -28,11 +29,11 @@ function VU() {
 	var redline = percentOf(aRedStart);
 	var riseTime = 300; // == fallTime
 	var needleSpeed = 0.7 / riseTime * 1000;  // 0.7 = 0dB; it must take 300ms to reach 0db from 0
+	var DYNRANGE = 6.02*8+1.76; // 8bit dyn.range ~= 50
 	
 	var indicatorValue = -.1; // 0 .. 1
 	var animLastTime = 0;
 
-	//var needleRingingAnim;
 	var currentAnim;
 
 	var powered = false;
@@ -45,6 +46,9 @@ function VU() {
 	var fps = '';
 	var frames = 0;
 	var frameTime = 0;
+	
+	// audio api analysis connection
+	var analyser;
 
 	var ColorDefs = [
 		// 0: light off
@@ -196,6 +200,23 @@ function requestUpdateBackground() {
 	backgroundImage = null;
 }
 
+var gconsole = {
+	color: 'blue',
+	lines: [],
+	log: function(text) {
+		this.lines.push(text);
+	},
+	draw: function(ctx) {
+		if (this.lines.length == 0) return;
+		ctx.font = '8pt Arial';
+		ctx.textAlign = 'left';
+		ctx.fillStyle = this.color;
+		for (var i in this.lines)
+			ctx.fillText(this.lines[i],4,10+i*10);
+		this.lines = [];
+	}
+};
+
 function draw() {
 	var ctx = element.getContext('2d');
 	ctx.clearRect(0, 0, W, H);
@@ -210,10 +231,10 @@ function draw() {
 	drawLightMultiplier(ctx);
 
 	if (showfps) {
-		ctx.font = '8pt Arial';
-		ctx.fillStyle = 'black';
-		ctx.fillText(fps,20,20);
+		gconsole.log(fps);
 	}
+	
+	gconsole.draw(ctx);
 }
 
 function drawBackground(ctx) {
@@ -399,12 +420,27 @@ function sign(x) {
 function animateIndicator(time) {
 	var deltaTimeMillis = (time - animLastTime);
 
-	// reduce CPU consumption by drawing only when animations run
+	// NOTE: to reduce CPU consumption draw only when necessary
+
+	if (analyser && powered) {
+		var rmsdb = rmsPowerAnalysis();
+		//gconsole.log('dB '+rmsdb.toFixed(1));
+		var rms = db2vu(rmsdb);
+		var delta;
+		if (rms >= indicatorValue)
+			delta = Math.log(1+rms-indicatorValue)/(deltaTimeMillis/3);
+		else
+			delta = -Math.log(1+indicatorValue-rms)/(deltaTimeMillis/4);
+		indicatorValue += delta;
+		//gconsole.log('VU '+indicatorValue.toFixed(2));
+		if (delta != 0) draw(); 
+	}
 	if (currentAnim) {
 		indicatorValue = currentAnim.currentValue;
 		currentAnim.update(deltaTimeMillis);
 		draw(); 
 	}
+	
 	requestAnimationFrame(animateIndicator);
 	animLastTime = time;
 	
@@ -417,6 +453,33 @@ function animateIndicator(time) {
 			frames = 0;
 		}
 	}
+}
+
+function db2vu(decibel) {
+	var reference = -3;	// dB value of 0 VU
+	if (decibel===-Infinity) return 0;
+	return 1+(decibel+reference)/DYNRANGE;
+}
+
+function decibel(sampleValue) {
+	return 20*Math.log(sampleValue)/2.302585092994046;
+}
+
+function rmsPowerAnalysis() {
+	if (!powered) return -Infinity;
+
+    var length = analyser.frequencyBinCount;
+	var wavedata = new Uint8Array(length);
+	analyser.getByteTimeDomainData(wavedata);
+	
+    var power = 0;
+    var numberOfChannels = 1; // fixme
+    for (var i = 0; i < length; i++) {
+    	var sample = wavedata[i]-128;
+    	power +=  sample * sample;
+    }
+    var rms = Math.sqrt(power / (numberOfChannels * length)) / DYNRANGE; 
+    return decibel(rms);
 }
 
 function startAnimating(callback) {
@@ -464,6 +527,10 @@ this.canvas = function() {
 this.draw = function() {
 	requestAnimationFrame(draw);
 };
+
+this.connect = function(audioAnalyser) {
+	analyser = audioAnalyser;
+}
 
 this.lightMode = function(mode) { // day||night
 	if (mode==='day' && selectedLight!=1) selectedLight=1;
