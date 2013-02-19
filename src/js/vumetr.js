@@ -3,6 +3,8 @@
  * All rights reserved.
  * 
  * HISTORY
+ * - adjustable transientSensitivity
+ * - fixed scale of metering
  * - realtime audio analysis
  * - refactored animation code to perform anims in sequence
  * - optimized: pre-render and cache all parts beyond the needle
@@ -22,14 +24,18 @@ function VU() {
 	var ox = 200;
 	var oy = 250;
 	var aStart = 1.25*Math.PI;
-	var aRedStart = 1.6*Math.PI;
 	var aEnd = 1.75*Math.PI;
 	var baseRadius = 200;
 	
-	var redline = percentOf(aRedStart);
+	var transientSensitivity = 2.5;
 	var riseTime = 300; // == fallTime
 	var needleSpeed = 0.7 / riseTime * 1000;  // 0.7 = 0dB; it must take 300ms to reach 0db from 0
+
 	var DYNRANGE = 6.02*8+1.76; // 8bit dyn.range ~= 50
+	var dbreference = -3;	// dB value of 0 VU
+	var dbrange = 20-dbreference;
+	var thickMarkPositions = [-20,-10,-7,-5,-3,0,1,2,3];
+	var thinMarkPositions = [-9,-8,-6,-4,-2,-1];
 	
 	var indicatorValue = -.1; // 0 .. 1
 	var animLastTime = 0;
@@ -188,6 +194,23 @@ function percentOf(angle) {
 	return ( (angle%Math.PI)-(aStart%Math.PI) ) / ( (aEnd%Math.PI)-(aStart%Math.PI) );
 }
 
+// returns 0..1 
+function db2vu(decibel) {
+	if (decibel < -20) return 0;
+	var normDB = (decibel+dbreference)/dbrange;
+	// method 1 
+	var scaled = Math.PI/2+Math.PI/2*normDB;
+	var normalized = 1-Math.cos(scaled);
+	// method 2
+//	var scaled = 1-normDB*(Math.E-1);
+//	var normalized = (2+Math.sin(normDB*Math.PI/2)-Math.log(scaled))/2;
+	return normalized;
+}
+
+function decibel(sampleValue) {
+	return 20*Math.log(sampleValue)/2.302585092994046;
+}
+
 function renderBackground(ctx) {
 	drawBackground(ctx);
 	drawScaleBaseline(ctx);
@@ -263,6 +286,7 @@ function drawBackground(ctx) {
 }
 
 function drawScaleBaseline(ctx) {
+	var aRedStart = angleOf(db2vu(0));
 	ctx.beginPath();
 	ctx.arc(ox,oy,baseRadius+.75,aStart,aRedStart);
 	ctx.lineWidth = 1.5;
@@ -276,11 +300,11 @@ function drawScaleBaseline(ctx) {
 }
 
 function drawScaleMarks(ctx) {
-	markAt(4, 20, [0, .04, .15, .3, .4, .5, .6, .7, .75, .8, .9, 1]);	// thick
-	markAt(1, 10, [.35, .45, .55, .65]);	// thin
+	markAt(4, 20, thickMarkPositions);
+	markAt(1, 10, thinMarkPositions);
 	
-	function markAt(lw, len, positions) {
-		alongScale(positions, function(percent, xconv, yconv){
+	function markAt(linew, len, positions) {
+		alongScale(positions, function(percent, xconv, yconv, pos){
 			var x0 = ox + baseRadius*xconv;
 			var y0 = oy + baseRadius*yconv;
 			var x1 = ox + baseRadius*xconv+len*xconv;
@@ -289,8 +313,8 @@ function drawScaleMarks(ctx) {
 			ctx.moveTo(x0,y0);
 			ctx.lineTo(x1,y1);
 			ctx.strokeStyle = colorScheme.scaleMarksColor;
-			if (percent >= redline) ctx.strokeStyle = colorScheme.overloadMarksColor;
-			ctx.lineWidth = lw;
+			if (pos >= 0) ctx.strokeStyle = colorScheme.overloadMarksColor;
+			ctx.lineWidth = linew;
 			ctx.stroke();
 		})
 	};
@@ -298,40 +322,27 @@ function drawScaleMarks(ctx) {
 
 function alongScale(positions, fn) {
 	for (var i=0; i<positions.length; i++) {
-		var percent = positions[i];
+		var percent = db2vu(positions[i]);
 		var xconv = Math.cos(angleOf(percent));
 		var yconv = Math.sin(angleOf(percent));
-		fn(percent, xconv, yconv);
+		fn(percent, xconv, yconv, positions[i]);
 	}	
 }
 
 function drawScaleNumbers(ctx) {
-	var positions = [-.02,0.04, .3, .5, .6, .7, .8, .9, 1,1.04];
-	var labels = [];
-	labels[-.02] = '-';
-	labels[0.04] = '20';
-	labels[.3] = '10';
-	labels[.5] = '3';
-	labels[.6] = '1';
-	labels[.7] = '0';
-	labels[.8] = '1';
-	labels[.9] = '2';
-	labels[1] = '3';
-	labels[1.04] = '+';
-	
 	ctx.font = '16pt CaviarDreamsBold';
 	ctx.textAlign = 'center';
-	alongScale(positions, function(percent, xconv, yconv){
+	alongScale(thickMarkPositions, function(percent, xconv, yconv, pos){
 		var xt = ox + baseRadius*xconv+25*xconv;
 		var yt = oy + baseRadius*yconv+25*yconv;
 		ctx.beginPath();
 		ctx.fillStyle = colorScheme.scaleMarksColor;
-		if (percent >= redline) ctx.fillStyle = colorScheme.overloadMarksColor;
+		if (pos >= 0) ctx.fillStyle = colorScheme.overloadMarksColor;
 		ctx.save();
 		ctx.translate(ox,oy);
 		ctx.rotate(-1.5*Math.PI+angleOf(percent));
 		ctx.scale(.8,1);
-		ctx.fillText(labels[percent], 0,-baseRadius-25);
+		ctx.fillText(Math.abs(pos), 0,-baseRadius-25);
 		ctx.restore();
 	})
 }
@@ -381,7 +392,7 @@ function RingingAnim(targetValue,direction,oscRate,scale,duration,fnComplete) {
 	this.targetValue = targetValue;
 }
 RingingAnim.prototype.update = function(deltaTimeMillis) {
-	var dampFactor = 1/Math.log(1+this.timePos); // inf. when timePos=0
+	var dampFactor = 1/Math.log(1+this.timePos); // inf. when timePos=0	   // XXX wrong!! 1..Inf
 	if (dampFactor>1) dampFactor = 1; // fix inf.
 	this.currentValue = this.targetValue + Math.sin(this.phase)*this.scale*dampFactor;
 	this.timePos += this.timeRate*deltaTimeMillis;
@@ -428,9 +439,9 @@ function animateIndicator(time) {
 		var rms = db2vu(rmsdb);
 		var delta;
 		if (rms >= indicatorValue)
-			delta = Math.log(1+rms-indicatorValue)/(deltaTimeMillis/3);
+			delta = Math.log(1+rms-indicatorValue)/(deltaTimeMillis/transientSensitivity);
 		else
-			delta = -Math.log(1+indicatorValue-rms)/(deltaTimeMillis/4);
+			delta = -Math.log(1+indicatorValue-rms)/(deltaTimeMillis/transientSensitivity*.66);
 		indicatorValue += delta;
 		//gconsole.log('VU '+indicatorValue.toFixed(2));
 		if (delta != 0) draw(); 
@@ -453,16 +464,6 @@ function animateIndicator(time) {
 			frames = 0;
 		}
 	}
-}
-
-function db2vu(decibel) {
-	var reference = -3;	// dB value of 0 VU
-	if (decibel===-Infinity) return 0;
-	return 1+(decibel+reference)/DYNRANGE;
-}
-
-function decibel(sampleValue) {
-	return 20*Math.log(sampleValue)/2.302585092994046;
 }
 
 function rmsPowerAnalysis() {
@@ -556,6 +557,11 @@ this.power = function(onOrOff) {
 		powered = false;
 	}
 };
+
+this.transientSensitivity = function(num) {
+	if (num===undefined) return transientSensitivity;
+	else transientSensitivity = num;
+}
 
 this.input = function(percent) {
 	if (powered) {

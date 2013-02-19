@@ -20,7 +20,7 @@ All graphic elements are drawn exclusively using the canvas API, no imagery.
 
 ## Technology ##
  - HTML5 canvas
- - HTML5 audio
+ - HTML5 audio API
  - jQuery integration
  - smooth/efficient animation (requestAnimFrame)
 
@@ -29,6 +29,7 @@ Usage
 
 - Create the VU: `$('.myclass').vumetr()`
 - Connect to audio source (see Realtime metering): `$('.myclass').vumetr('connect', analyserNode)`
+- Change needle responsiveness to transients: `$('.myclass').vumetr('transientSensitivity', 4)` : [1..5]
 - Set level of the 'input audio signal': `$('.myclass').vumetr('input', 0.2)` : [0..1], 0.7 = 0 VU
 - Change light mode: `$('.myclass').vumetr('lightMode', 'day')` : 'day' or 'night'
 - Device power: `$('.myclass').vumetr('power', 'on')`: 'on' or 'off'
